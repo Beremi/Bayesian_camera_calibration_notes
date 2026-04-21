@@ -1,0 +1,40 @@
+{
+  "dt_s": 0.016666666666666666,
+  "horizon_s": 4.0,
+  "num_paths_3d": 8,
+  "num_paths_state": 6,
+  "sigma_p0_m": [
+    0.01,
+    0.01,
+    0.01
+  ],
+  "sigma_v0_mps": [
+    0.03,
+    0.03,
+    0.03
+  ],
+  "sigma_rpy0_deg": [
+    2.0,
+    2.0,
+    3.0
+  ],
+  "sigma_omega0_degps": [
+    4.0,
+    4.0,
+    5.0
+  ],
+  "sigma_lin_acc_process_mps2": 0.1,
+  "sigma_ang_acc_process_degps2": 6.0,
+  "sigma_bg0_degps": [
+    0.2,
+    0.2,
+    0.2
+  ],
+  "sigma_ba0_mps2": [
+    0.03,
+    0.03,
+    0.03
+  ],
+  "sigma_bg_rw_step_degps": 0.005,
+  "sigma_ba_rw_step_mps2": 0.001
+}
