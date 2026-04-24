@@ -171,8 +171,8 @@ def main():
     plt.close(fig)
 
     # State evolution
-    fig = plt.figure(figsize=(10.0, 12.0))
-    gs = GridSpec(5, 3, figure=fig, hspace=0.35, wspace=0.22)
+    fig = plt.figure(figsize=(11.4, 12.6))
+    gs = GridSpec(5, 3, figure=fig, hspace=0.42, wspace=0.42)
     labels = [
         (("p", "p_x [m]"), ("p", "p_y [m]"), ("p", "p_z [m]")),
         (("v", "v_x [m/s]"), ("v", "v_y [m/s]"), ("v", "v_z [m/s]")),
@@ -195,7 +195,7 @@ def main():
             if r == 4:
                 ax.set_xlabel("time [s]")
             ax.grid(True, alpha=0.22)
-    fig.subplots_adjust(left=0.08, right=0.98, bottom=0.05, top=0.97, hspace=0.35, wspace=0.22)
+    fig.subplots_adjust(left=0.075, right=0.985, bottom=0.05, top=0.97, hspace=0.42, wspace=0.42)
     fig.savefig(FIGDIR / "prior_state_evolution.png", dpi=240, bbox_inches="tight", pad_inches=0.05)
     plt.close(fig)
 

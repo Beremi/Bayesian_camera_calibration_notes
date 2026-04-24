@@ -50,6 +50,7 @@
 \newcommand{\crossmat}[1]{\left[#1\right]_{\times}}
 \newcommand{\Half}{\tfrac12}
 \newcommand{\vect}[1]{\boldsymbol{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash\hspace{0pt}}p{#1}}
 \definecolor{Accent}{HTML}{163A63}
 \definecolor{Soft}{HTML}{EEF4FA}
 \definecolor{Soft2}{HTML}{F8FAFC}
@@ -132,7 +133,7 @@ $T_{AB}$ & Pose of frame $B$ expressed in frame $A$ & It maps coordinates from f
 $T_1,T_2$ & Generic elements of $\SE$ & Used when discussing generic pose composition or relative pose error.\\
 $A^{-1},A^{\tran}$ & Inverse and transpose & For poses, $T^{-1}$ is the inverse rigid motion; for matrices, $A^{\tran}$ is the transpose.\\
 $\Exp,\Log$ & Exponential and logarithm maps & They move between a Lie group such as $\SO$ or $\SE$ and local vector coordinates in its tangent space / Lie algebra.\\
-$[\cdot]_{\times}$ and $(\cdot)^\wedge$ & Skew / twist operators & They convert vectors in $\R^3$ or $\R^6$ into matrix form so that group updates can be written by matrix exponentials.\\
+$[\cdot]_{\times}$ and $(\cdot)^\wedge$ & Skew / twist operators & They convert 3D rotation vectors or 6D pose twists into matrix form so that group updates can be written by matrix exponentials.\\
 $q\in\Sthree$ & Unit quaternion & Alternative representation of orientation. In filtering one usually stores $q$ but keeps covariance on a 3D local rotation error, not on the four quaternion coordinates.\\
 $Y_k$ & Raw visual data at frame $k$ & Detected tag corners, tag ids, and per-corner quality information.\\
 $\lambda_k$ or $(\Delta\Lambda_k,\Delta\eta_k)$ & Prior-free visual message & The preferred modular interface from the camera inversion layer to the recursive estimator.\\
@@ -407,7 +408,7 @@ The state of the art differs mainly in \emph{how the prior over trajectories is 
 \centering
 \scriptsize
 \setlength{\tabcolsep}{3.4pt}
-\begin{tabularx}{\textwidth}{p{0.14\textwidth}p{0.17\textwidth}p{0.23\textwidth}p{0.17\textwidth}X}
+\begin{tabularx}{\textwidth}{L{0.14\textwidth}L{0.17\textwidth}L{0.23\textwidth}L{0.17\textwidth}Y}
 \toprule
 \textbf{Representative work} & \textbf{Unknown object} & \textbf{Prior / regularizer} & \textbf{Inference style} & \textbf{What it assumes or emphasizes}\\
 \midrule
@@ -579,15 +580,15 @@ $Q_k$ & Effective discrete process covariance over one propagation interval.}
 
 In an online filter it is more convenient to condition on the IMU packets and use the resulting state-transition model. The corresponding continuous-time kinematics are
 \begin{align}
-\dot R_{WB} &= R_{WB}(\widetilde\omega-b_g-n_g)^\wedge,\\
-\dot v_{WB} &= g_W + R_{WB}(\widetilde a-b_a-n_a),\\
-\dot p_{WB} &= v_{WB},\\
+\dot R_{WB} &= R_{WB}\crossmat{\widetilde\omega-b_g-n_g},\\
+\dot v_W &= g_W + R_{WB}(\widetilde a-b_a-n_a),\\
+\dot p_{WB} &= v_W,\\
 \dot b_g &= w_{bg},\\
 \dot b_a &= w_{ba}.
 \end{align}
 A first-order discrete propagation over one camera interval is
 \begin{equation}
-R_{k+1}=R_k\Exp\!\big((\widetilde\omega_k-b_{g,k})\Delta t\big),
+R_{k+1}=R_k\Exp\!\big(\crossmat{\widetilde\omega_k-b_{g,k}}\Delta t\big),
 \end{equation}
 \begin{equation}
 v_{k+1}=v_k+\big(g_W+R_k(\widetilde a_k-b_{a,k})\big)\Delta t+n_k^v,
@@ -1066,11 +1067,11 @@ A helpful mental model is:
 
 In practice, parameter selection should proceed hierarchically.
 \begin{enumerate}
-  \item Estimate $R_g,R_a$ and their continuous-time equivalents from stationary IMU data, preferably through Allan deviation analysis. Kalibr's IMU model uses continuous-time white-noise and bias-random-walk parameters of exactly this form \citep{kalibr_noise}.\
-  \item Estimate or model the camera-message strength frame by frame from the local visual Hessian or from a parametric geometry-driven model such as \eqref{eq:pixel_sigma_model_sweep}; if a pose-summary fallback is used, this same step yields $R_{v,k}$.\
-  \item Set $m_0$ from the first trustworthy anchored visual pose and $P_0$ by inflating the corresponding local covariance to reflect unmodeled setup uncertainty.\
-  \item Tune $Q_v,Q_\omega,Q_{bg},Q_{ba}$ so that innovation statistics are consistent: too small gives under-dispersed posteriors, too large gives noisy or drifting estimates.\
-  \item If residual autocorrelation remains high on the visual side, introduce $c_k$ with parameters $(\rho_p,\rho_R,Q_c)$ rather than forcing independent noise to explain correlated errors.\
+  \item Estimate $R_g,R_a$ and their continuous-time equivalents from stationary IMU data, preferably through Allan deviation analysis. Kalibr's IMU model uses continuous-time white-noise and bias-random-walk parameters of exactly this form \citep{kalibr_noise}.
+  \item Estimate or model the camera-message strength frame by frame from the local visual Hessian or from a parametric geometry-driven model such as \eqref{eq:pixel_sigma_model_sweep}; if a pose-summary fallback is used, this same step yields $R_{v,k}$.
+  \item Set $m_0$ from the first trustworthy anchored visual pose and $P_0$ by inflating the corresponding local covariance to reflect unmodeled setup uncertainty.
+  \item Tune $Q_v,Q_\omega,Q_{bg},Q_{ba}$ so that innovation statistics are consistent: too small gives under-dispersed posteriors, too large gives noisy or drifting estimates.
+  \item If residual autocorrelation remains high on the visual side, introduce $c_k$ with parameters $(\rho_p,\rho_R,Q_c)$ rather than forcing independent noise to explain correlated errors.
   \item If the camera module internally uses a predicted prior, verify that the exported visual interface is prior-free by construction; otherwise the back-end will be systematically overconfident.
 \end{enumerate}
 
@@ -1084,11 +1085,11 @@ $\sigma_g,\sigma_a,\sigma_{bg},\sigma_{ba}$ & IMU white-noise and bias-random-wa
 
 This section gives two kinds of numbers: \emph{hardware facts} drawn from cited sources, and \emph{engineering starting values} for the model parameters used in this chapter. The latter are recommendations, not immutable truths.
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \scriptsize
 \setlength{\tabcolsep}{3.8pt}
-\begin{tabularx}{\textwidth}{p{0.22\textwidth}p{0.18\textwidth}X}
+\begin{tabularx}{\textwidth}{L{0.22\textwidth}L{0.20\textwidth}Y}
 \toprule
 \textbf{Quantity} & \textbf{Representative value} & \textbf{Rationale / source}\\
 \midrule
@@ -1137,7 +1138,7 @@ The previous chapter established the reference posterior and the message-based r
 \end{itemize}
 The rest of the section explains how that architectural choice affects initialization, new-tag birth, reappearance handling, and map bookkeeping. Figure~\ref{fig:implementation_architecture_report} should be read as an engineering module diagram for the event-driven modular approximation, not as a posterior graph like Figure~\ref{fig:factor_graph_joint_problem}. Solid arrows denote current-event information flow, while the dashed path denotes persistent map memory and cached priors reused by later camera events.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[font=\footnotesize, >=Latex, x=0.88cm, y=1cm]
   \node[reportsoft, text width=2.7cm] (events) at (0,0) {Time-ordered event queue\\IMU packets and camera frames};
@@ -1210,9 +1211,9 @@ If the message layer is unavailable, a pose pseudo-measurement update remains po
 
 Figure~\ref{fig:staggered_flow_report} makes the exposure-time logic explicit. The estimator does not wait for an artificial camera--IMU pair; it propagates through the arriving IMU packets and, when a camera frame arrives, advances the state to that exact exposure time before launching the camera inversion.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
-\begin{tikzpicture}[font=\footnotesize, >=Latex, x=0.72cm, y=0.95cm]
+\begin{tikzpicture}[font=\footnotesize, >=Latex, x=0.95cm, y=0.86cm]
   \tikzstyle{evt}=[circle,draw=Accent,minimum size=0.5cm,inner sep=1pt]
   \tikzstyle{imuevt}=[evt,fill=green!12]
   \tikzstyle{camevt}=[evt,fill=orange!14]
@@ -1225,24 +1226,24 @@ Figure~\ref{fig:staggered_flow_report} makes the exposure-time logic explicit. T
   \foreach \x/\lbl in {3.2/k\!-\!1,6.5/k,10.6/k\!+\!1,13.0/k\!+\!2} {
     \node[camevt] at (\x,3.9) {\scriptsize C};
     \draw[Accent!65] (\x,3.35) -- (\x,3.62);
-    \node[font=\scriptsize] at (\x,4.45) {$t_{\lbl}$};
+    \node[font=\scriptsize, anchor=north west] at (\x,3.08) {$t_{\lbl}$};
   }
 
-  \node[reportsoft, text width=4.0cm] (topimu) at (2.8,5.15) {IMU packets arrive more frequently\\and only propagate the prior};
+  \node[reportsoft, text width=4.0cm] (topimu) at (2.8,5.15) {IMU packets arrive\\frequently and only\\propagate the prior};
   \node[reportsoft, text width=4.6cm] (topcam) at (10.3,5.15) {When a camera frame arrives, the estimator advances to the exact exposure time before any visual update};
   \draw[reportarrow] (topimu.south) -- (2.6,4.2);
   \draw[reportarrow] (topcam.south) -- (10.6,4.2);
 
-  \node[reportfactor, text width=3.0cm] (imu) at (1.6,0) {1. Propagate through arriving IMU events};
-  \node[reportsoft, text width=3.2cm] (prior) at (5.9,0) {2. At exposure time $t_k$, extract the local pose / tag prior};
-  \node[reportfactor, text width=3.2cm] (cam) at (10.1,0) {3. Run camera inversion on the current frame};
-  \node[reportstate, text width=3.3cm] (msg) at (14.4,0) {4. Remove the local prior and assimilate the message};
-  \node[reportmap, text width=5.1cm] (map) at (10.1,-2.9) {5. Birth new tags cautiously and gate reappearing tags\\inside the same joint state and covariance};
+  \node[reportfactor, text width=3.0cm] (imu) at (1.55,0) {1. Propagate through arriving IMU events};
+  \node[reportsoft, text width=3.25cm] (prior) at (5.65,0) {2. At exposure time $t_k$, extract the local pose / tag prior};
+  \node[reportfactor, text width=3.2cm] (cam) at (9.75,0) {3. Run camera inversion on the current frame};
+  \node[reportstate, text width=3.35cm] (msg) at (14.0,0) {4. Remove the local prior and assimilate the message};
+  \node[reportmap, text width=5.2cm] (map) at (10.9,-2.65) {5. Birth new tags cautiously and gate reappearing tags\\inside the same joint state and covariance};
 
   \draw[reportarrow] (imu) -- (prior);
   \draw[reportarrow] (prior) -- (cam);
   \draw[reportarrow] (cam) -- (msg);
-  \draw[reportarrow] (msg.south west) -- ++(-0.3,-0.55) -| (map.east);
+  \draw[reportarrow] (msg.south) -- ++(0,-0.65) -| (map.east);
   \draw[reportdash] (6.5,3.62) -- (6.5,1.05);
   \draw[reportdash] (10.6,3.62) -- (10.6,1.05);
 \end{tikzpicture}
@@ -1265,7 +1266,7 @@ and propagate covariance through the local linearization.
 
 \textbf{Step 2: initialize non-pose Euclidean components.} Choose
 \[
-v_{WB,0}\sim \Normal(0,P_{v0}),\qquad b_{g,0}\sim \Normal(0,P_{bg0}),\qquad b_{a,0}\sim \Normal(0,P_{ba0}),
+v_{W,0}\sim \Normal(0,P_{v0}),\qquad b_{g,0}\sim \Normal(0,P_{bg0}),\qquad b_{a,0}\sim \Normal(0,P_{ba0}),
 \]
 with conservative spreads unless a stationary segment is available.
 
@@ -1275,7 +1276,7 @@ with conservative spreads unless a stationary segment is available.
 = \argmin_{T\in\SE}
 \sum_{i=1}^{4}
 \Bigl\|
-\widetilde u_{0,j,i}-\pi\bigl(K,\widehat T_{CW,0}T\bar P_i^T\bigr)
+\widetilde u_{i,0}^{(j)}-\pi\bigl(K,\widehat T_{CW,0}T P_i^{(j)}\bigr)
 \Bigr\|^2_{\Sigma_{0,j,i}^{-1}}.
 \label{eq:tag_birth_conditional_init}
 \end{equation}
@@ -1466,7 +1467,7 @@ For the simulation we use the discrete generative scheme
 \begin{align}
 p_{k+1} &= p_k + v_k \Delta t + \tfrac12 a_k \Delta t^2,\\
 v_{k+1} &= v_k + a_k \Delta t,\\
-R_{k+1} &= R_k \Exp\!\big((\omega_k \Delta t)^\wedge\big),\\
+R_{k+1} &= R_k \Exp\!\big(\crossmat{\omega_k}\Delta t\big),\\
 \omega_{k+1} &= \omega_k + \alpha_k \Delta t,\\
 b_{g,k+1} &= b_{g,k} + \eta^{bg}_k,\\
 b_{a,k+1} &= b_{a,k} + \eta^{ba}_k,
@@ -1524,12 +1525,12 @@ Figure~\ref{fig:prior_paths_3d_annex} shows eight sampled translation paths. The
 \label{fig:prior_paths_3d_annex}
 \end{figure}
 
-To visualize that the prior actually lives on poses rather than on positions only, Figure~\ref{fig:prior_pose_glyphs_annex} overlays body-frame triads along one sample path. The translational path lies in $\R^3$, but the orientation evolves on $\SO(3)$ and is injected through the exponential-map update.
+To visualize that the prior actually lives on poses rather than on positions only, Figure~\ref{fig:prior_pose_glyphs_annex} overlays body-frame triads along one sample path. The translational path lies in $\R^3$, but the orientation evolves on $\SO$ and is injected through the exponential-map update.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{prior_pose_glyphs.png}
-\caption{One sampled pose trajectory with body-frame triads along the path. The translation is a path in $\R^3$, while the orientation component evolves on $\SO(3)$ and is updated multiplicatively.}
+\caption{One sampled pose trajectory with body-frame triads along the path. The translation is a path in $\R^3$, while the orientation component evolves on $\SO$ and is updated multiplicatively.}
 \label{fig:prior_pose_glyphs_annex}
 \end{figure}
 
