@@ -1140,21 +1140,22 @@ The rest of the section explains how that architectural choice affects initializ
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[font=\footnotesize, >=Latex, x=0.88cm, y=1cm]
-  \node[reportsoft, text width=2.7cm] (events) at (0,0) {Time-ordered event queue\\IMU packets and camera frames};
-  \node[reportbox, text width=3.9cm] (pred) at (5.2,0) {Joint predictor\\propagate nominal state and covariance\\to the current event time};
-  \node[reportbox, text width=3.8cm] (cam) at (10.1,1.5) {Camera inversion\\pixels + local pose/tag prior\\$\mapsto$ prior-free message};
-  \node[reportbox, text width=3.8cm] (upd) at (10.1,-1.7) {Joint estimator and map state\\message assimilation, tag birth,\\and reappearance gating};
-  \node[reportsoft, text width=2.7cm] (anchor) at (5.2,-3.6) {Known anchor\\$T_{WT_0}$};
-  \node[reportsoft, text width=3.1cm] (memory) at (14.7,0) {Persistent tag posteriors\\and cross-covariances};
-  \draw[reportarrow] (events) -- (pred);
-  \draw[reportarrow] (pred.east) to[out=8,in=180] node[midway, above, font=\scriptsize, fill=white, inner sep=1pt] {local predictive prior} (cam.west);
-  \draw[reportarrow] (pred.east) to[out=-10,in=180] (upd.west);
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[font=\footnotesize, >=Latex, x=1cm, y=1cm]
+  \node[reportsoft, text width=3.0cm] (events) at (0,0) {Time-ordered event queue\\IMU packets and camera frames};
+  \node[reportbox, text width=4.2cm] (pred) at (4.9,0) {Joint predictor\\propagate nominal state and covariance\\to the current event time};
+  \node[reportbox, text width=3.9cm] (cam) at (10.4,1.7) {Camera inversion\\pixels + local pose/tag prior\\$\mapsto$ prior-free message};
+  \node[reportbox, text width=4.0cm] (upd) at (10.4,-1.85) {Joint estimator and map state\\message assimilation, tag birth,\\and reappearance gating};
+  \node[reportsoft, text width=2.8cm] (anchor) at (4.9,-3.9) {Known anchor\\$T_{WT_0}$};
+  \node[reportsoft, text width=3.25cm] (memory) at (15.2,-0.25) {Persistent tag posteriors\\and cross-covariances};
+  \draw[reportarrow] (events.east) -- (pred.west);
+  \draw[reportarrow] (pred.east) -- ++(0.62,0) |- node[pos=0.72, above, font=\scriptsize, fill=white, inner sep=1pt] {local predictive prior} (cam.west);
+  \draw[reportarrow] (pred.east) -- ++(0.62,0) |- (upd.west);
   \draw[reportarrow] (anchor.north) -- (pred.south);
-  \draw[reportarrow] (cam.south) -- node[right, font=\scriptsize, fill=white, inner sep=1pt] {$\lambda_k$} (upd.north);
-  \draw[reportarrow] (upd.east) -- (memory.west);
-  \draw[reportdash, rounded corners=4pt] (memory.south) -- ++(0,-1.5) -| ([xshift=-1pt]cam.east);
-\end{tikzpicture}
+  \draw[reportarrow] (cam.south) -- node[midway, right, font=\scriptsize, fill=white, inner sep=1pt] {$\lambda_k$} (upd.north);
+  \draw[reportarrow] (upd.east) -- ++(0.78,0) |- (memory.west);
+  \draw[reportdash, rounded corners=6pt] (memory.north) -- ++(0,2.05) -| (cam.east);
+\end{tikzpicture}}
 \caption{Event-driven implementation architecture. IMU and camera events are processed in timestamp order. The predictor advances the joint state to the current event time; camera frames trigger a local inversion that returns a prior-free message; the joint estimator assimilates that message while preserving pose--map cross-covariances. Persistent tag beliefs are stored and reused by later camera events.}
 \label{fig:implementation_architecture_report}
 \end{figure}
