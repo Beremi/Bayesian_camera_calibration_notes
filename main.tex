@@ -193,10 +193,30 @@ $\soLie$ & Tangent space of $\SO$ at the identity. It consists of $3\times3$ ske
 $\seLie$ & Tangent space of $\SE$ at the identity. It is the 6D space of twists.\\
 $[\phi]_{\times}$ & Skew-symmetric matrix built from $\phi\in\R^3$.\\
 $\xi^\wedge$ & Matrix form of a pose perturbation $\xi\in\R^6$.\\
+$(\cdot)^\vee$ & Inverse of the skew / twist matrix operator, returning vector coordinates.\\
 $\Exp,\Log$ & Maps between the group and local vector coordinates.\\
 $\phi,\xi$ & Local rotation error and local pose error coordinates.}
 
-A Lie group is a smooth manifold equipped with globally valid group operations. In this report the concrete Lie groups are $\SO$ for orientation and $\SE$ for full rigid pose. What matters in practice is that one can compose and invert poses globally, while still doing calculus and Gaussian approximation in a local vector space. That local vector space is the tangent space at the identity, also called the Lie algebra.
+A group is a set $G$ with a binary operation, written here as multiplication, satisfying four properties: closure ($g_1g_2\in G$ for $g_1,g_2\in G$), associativity ($(g_1g_2)g_3=g_1(g_2g_3)$), an identity element $e$ with $eg=ge=g$, and an inverse $g^{-1}$ for every element. A Lie group is a group that is also a smooth manifold, with multiplication and inversion varying smoothly with the group element. In this report the concrete Lie groups are $\SO$ for orientation and $\SE$ for full rigid pose. What matters in practice is that one can compose and invert poses globally, while still doing calculus and Gaussian approximation in a local vector space. That local vector space is the tangent space at the identity, also called the Lie algebra.
+
+The group properties are concrete here, not abstract decoration. If $R_1,R_2\in\SO$, then
+\begin{equation}
+(R_1R_2)\tran(R_1R_2)=I,\qquad \det(R_1R_2)=\det(R_1)\det(R_2)=1,
+\end{equation}
+so $R_1R_2\in\SO$. The identity is $I$, the inverse is $R^{-1}=R\tran$, and associativity is inherited from matrix multiplication. The orthogonality and determinant constraints define a smooth three-dimensional manifold inside $\R^{3\times3}$, and matrix multiplication / transpose are smooth operations on it. Thus $\SO$ is a Lie group.
+
+For poses, multiplication and inversion are
+\begin{equation}
+\begin{bmatrix}R_1&p_1\\0&1\end{bmatrix}
+\begin{bmatrix}R_2&p_2\\0&1\end{bmatrix}
+=
+\begin{bmatrix}R_1R_2&p_1+R_1p_2\\0&1\end{bmatrix},
+\qquad
+\begin{bmatrix}R&p\\0&1\end{bmatrix}^{-1}
+=
+\begin{bmatrix}R\tran&-R\tran p\\0&1\end{bmatrix}.
+\end{equation}
+Closure follows because $R_1R_2\in\SO$ and $p_1+R_1p_2\in\R^3$; the identity is $I_4$; associativity again comes from matrix multiplication; and the inverse has the same rigid-transform form. Since $\SE$ is the smooth semidirect-product manifold $\SO\ltimes\R^3$ and these formulas are smooth in $(R,p)$, $\SE$ is also a Lie group.
 
 \begin{center}
 {\scriptsize
@@ -215,6 +235,22 @@ Retraction & $T^+=T\Exp(\xi^\wedge)$ & EKF, IEKF, and Gauss--Newton correction s
 \end{tabular}}
 \end{center}
 
+The exponential and logarithm maps are the bridge between the curved group and local vector coordinates. At the matrix level, the exponential is
+\begin{equation}
+\operatorname{expm}(A)=\sum_{n=0}^{\infty}\frac{A^n}{n!}.
+\end{equation}
+For a Lie group, this sends a Lie-algebra element to a group element. We use the standard robotics shorthand
+\begin{equation}
+\Exp([\phi]_\times)=\operatorname{expm}([\phi]_\times)\in\SO,\qquad
+\Exp(\xi^\wedge)=\operatorname{expm}(\xi^\wedge)\in\SE,
+\end{equation}
+and
+\begin{equation}
+\Log(R)=\bigl(\operatorname{logm}(R)\bigr)^\vee\in\R^3,\qquad
+\Log(T)=\bigl(\operatorname{logm}(T)\bigr)^\vee\in\R^6,
+\end{equation}
+where $\operatorname{logm}$ is a locally chosen matrix logarithm. The logarithm is local rather than globally unique: for rotations the branch is unambiguous for angles strictly below $\pi$, while an angle of $\pi$ has unavoidable axis/sign ambiguities. This is acceptable for filtering and Gauss--Newton updates because residuals are kept near the identity by relinearization.
+
 For rotations, the Lie algebra is
 \begin{equation}
 \soLie=\{\Omega\in\R^{3\times3}:\Omega\tran=-\Omega\}.
@@ -228,7 +264,21 @@ Every vector $\phi=[\phi_1\ \phi_2\ \phi_3]\tran\in\R^3$ corresponds to a skew-s
 \end{bmatrix}.
 \label{eq:skew_definition_sweep}
 \end{equation}
-This is why $\R^3$ is used as the minimal local coordinate system for small rotation errors. A small orientation perturbation $\delta\theta\in\R^3$ updates a nominal rotation by
+This is why $\R^3$ is used as the minimal local coordinate system for small rotation errors. With $\theta=\norm{\phi}$, the rotation exponential has the Rodrigues form
+\begin{equation}
+\Exp([\phi]_{\times})
+=I+\frac{\sin\theta}{\theta}[\phi]_{\times}
+ +\frac{1-\cos\theta}{\theta^2}[\phi]_{\times}^2,
+\label{eq:rodrigues_exp_sweep}
+\end{equation}
+where the coefficients are interpreted by their Taylor limits when $\theta\to0$. Conversely, for $R\in\SO$ with rotation angle $\theta\in(0,\pi)$,
+\begin{equation}
+\Log(R)=\left(\frac{\theta}{2\sin\theta}(R-R\tran)\right)^\vee,
+\qquad
+\theta=\cos^{-1}\!\left(\frac{\tr(R)-1}{2}\right).
+\label{eq:rotation_log_sweep}
+\end{equation}
+The small-angle limit of \eqref{eq:rotation_log_sweep} is simply $\Log(R)\approx \veeop(\tfrac12(R-R\tran))$. A small orientation perturbation $\delta\theta\in\R^3$ updates a nominal rotation by
 \begin{equation}
 R^+=R\,\Exp([\delta\theta]_{\times}).
 \label{eq:rotation_update_sweep}
@@ -241,6 +291,27 @@ with matrix form
 \begin{equation}
 \xi^\wedge=\begin{bmatrix}[\phi]_{\times} & \rho\\ 0 & 0\end{bmatrix}\in\seLie.
 \label{eq:wedge_definition_sweep}
+\end{equation}
+Its exponential can be written explicitly, with the same $\theta=\norm{\phi}$, as
+\begin{equation}
+\Exp(\xi^\wedge)=
+\begin{bmatrix}
+\Exp([\phi]_{\times}) & J(\phi)\rho\\
+0 & 1
+\end{bmatrix},
+\qquad
+J(\phi)=I+\frac{1-\cos\theta}{\theta^2}[\phi]_{\times}
+ +\frac{\theta-\sin\theta}{\theta^3}[\phi]_{\times}^2,
+\label{eq:se3_exp_sweep}
+\end{equation}
+again with Taylor limits at $\theta=0$. Thus the translational block of a pose increment is not merely $\rho$ when there is a finite rotation; it is coupled through the left Jacobian $J(\phi)$. Conversely, if
+\begin{equation}
+T=\begin{bmatrix}R&p\\0&1\end{bmatrix}\in\SE,
+\end{equation}
+then the local logarithm is obtained by
+\begin{equation}
+\phi=\Log(R),\qquad \rho=J(\phi)^{-1}p,\qquad \Log(T)=\begin{bmatrix}\rho\\\phi\end{bmatrix}.
+\label{eq:se3_log_sweep}
 \end{equation}
 Then a pose update is written as
 \begin{equation}
