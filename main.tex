@@ -89,6 +89,13 @@ reportdash/.style={->, semithick, dashed, draw=Accent!75}
 \bottomrule
 \end{tabularx}}
 \vspace{0.8mm}}
+\newcommand{\ChapterRoadmap}[1]{%
+\begin{center}
+\begin{minipage}{0.94\textwidth}
+\small\textbf{Roadmap.} #1
+\end{minipage}
+\end{center}
+\vspace{1mm}}
 \setcounter{secnumdepth}{2}
 \setcounter{tocdepth}{2}
 \title{Online Bayesian Inversion for an Anchored Multi-Tag Visual--Inertial Rig\\[-1mm]\large Foundations, inference structure, and practical implementation\\[1mm]\normalsize Geometry, priors, likelihoods, estimator hierarchy, and prior-sampling illustrations}
@@ -113,7 +120,24 @@ This report develops an event-driven Bayesian treatment of trajectory and pose e
 \hypersetup{pageanchor=true}
 \pagenumbering{arabic}
 
+\chapter*{How to read this report}
+\addcontentsline{toc}{chapter}{How to read this report}
+
+The report is organized from modeling assumptions to practical estimators. A reader who knows basic linear algebra and probability can follow the main line without first knowing Lie theory or visual--inertial odometry.
+
+\begin{enumerate}
+  \item First read the frame convention and pose geometry. The symbols $T_{AB}$, $\Exp$, and $\Log$ are used everywhere else.
+  \item Then read the Bayesian target: what is unknown, what is observed, and why a camera posterior is not the same thing as a fresh measurement.
+  \item Next read the prior and likelihood sections. They explain which assumptions come from dynamics, which come from sensors, and which are engineering approximations.
+  \item Finally read the inference and implementation sections. They turn the exact posterior into practical MAP, EKF/IEKF, message-passing, or fallback pose-summary algorithms.
+\end{enumerate}
+
+The notation tables are part of the exposition, not appendices. They are intended to keep each section self-contained.
+
+\clearpage
+
 \chapter{Foundations and Problem Setup}
+\ChapterRoadmap{This chapter fixes frames and pose notation, states the Bayesian target, introduces the trajectory and map priors, writes the IMU and camera likelihoods, and only then derives the exact posterior and its numerical approximations. The order is deliberate: geometry first, probability model second, algorithms third.}
 
 \begin{table}[t]
 \centering
@@ -186,6 +210,13 @@ meaning ``pose of frame $B$ expressed in frame $A$.'' If a point has coordinates
 \begin{bmatrix}x_A\\1\end{bmatrix}=T_{AB}\begin{bmatrix}x_B\\1\end{bmatrix}.
 \end{equation}
 Thus $T_{AB}^{-1}=T_{BA}$. When the notation $T_1,T_2$ is used later, it simply means generic poses in $\SE$ without specifying their frame labels.
+
+This convention fixes the camera--IMU extrinsic notation used later. The transform $T_{BC}$ is the pose of the camera frame $C$ expressed in the body/IMU frame $B$, so it maps camera coordinates into body coordinates. Its inverse $T_{CB}=T_{BC}^{-1}$ maps body coordinates into camera coordinates. Therefore
+\[
+T_{WC}=T_{WB}T_{BC},
+\qquad
+T_{WB}=T_{WC}T_{CB}.
+\]
 
 \subsection{Lie groups, operations, and local coordinates}
 \NotationTable{
@@ -419,13 +450,13 @@ $\lambda_k$ & Prior-free visual likelihood / information message extracted from 
 $z_k^v$ & Reduced fallback pose pseudo-measurement, with $z_k^v=(\widehat T_{WC,k},R_{v,k})$.\\
 $\mathcal J_{\mathrm{aux}}$ & Index set of non-anchor tags whose world poses are unknown but stationary.\\
 $M$ & Static auxiliary-tag map $M=\{T_{WT_j}\}_{j\in\mathcal J_{\mathrm{aux}}}$.\\
-$T_{BC}$ & Known rigid transform from IMU/body frame to camera frame.}
+$T_{BC}$ & Known pose of the camera frame expressed in the IMU/body frame; it maps camera coordinates to body coordinates.}
 
-We assume a rigid body carrying an IMU and a camera. The world frame $W$ is anchored by at least one known calibration pattern. In the multi-tag case emphasized later, tag $j=0$ is the anchor and its world pose $T_{WT_0}$ is known (often chosen as the identity pose), while the remaining tags $j\in\mathcal J_{\mathrm{aux}}$ are only known to be stationary. The IMU/body frame is $B$, the camera frame is $C$, and the rigid body-to-camera transform
+We assume a rigid body carrying an IMU and a camera. The world frame $W$ is anchored by at least one known calibration pattern. In the multi-tag case emphasized later, tag $j=0$ is the anchor and its world pose $T_{WT_0}$ is known (often chosen as the identity pose), while the remaining tags $j\in\mathcal J_{\mathrm{aux}}$ are only known to be stationary. The IMU/body frame is $B$, the camera frame is $C$, and the camera extrinsic is
 \begin{equation}
 T_{BC}=\begin{bmatrix}R_{BC}&t_{BC}\\0&1\end{bmatrix}\in\SE
 \end{equation}
-is assumed known from an earlier calibration step.
+which is assumed known from an earlier calibration step. By the convention above, $T_{BC}$ maps camera-frame coordinates into body-frame coordinates and $T_{CB}=T_{BC}^{-1}$ maps body-frame coordinates into camera-frame coordinates.
 
 The sensor stream is asynchronous. Measurements are assimilated one event at a time, not in artificially synchronized camera--IMU pairs. Let
 \begin{equation}
@@ -464,36 +495,7 @@ z_k^v=(\widehat T_{WC,k},R_{v,k})
 \end{equation}
 is retained later as a weaker fallback approximation, useful only when one accepts that pose--map correlation and prior reuse are being simplified away.
 
-This event-driven viewpoint keeps the modeling honest while still allowing modular implementations. The camera inversion layer is free to use nonlinear optimization, robust losses, sliding windows, or visible-tag subsets internally. The main recursive estimator simply must not confuse the output of that subproblem with a fresh sensor reading unless the prior contribution has been removed first.
-
-\subsection{How the literature instantiates the same inverse problem}
-\NotationTable{
-Markov prior & Prior that factorizes as $p(x_0)\prod_k p(x_{k+1}\mid x_k)$.\\
-GP prior & Gaussian-process prior on the whole continuous-time trajectory curve.\\
-MAP & Maximum a posteriori estimate: the minimizer of the negative log posterior.\\
-Fixed lag & Approximate smoothing over a moving recent time window.}
-
-The state of the art differs mainly in \emph{how the prior over trajectories is represented} and \emph{how the posterior is approximated}. Path-space Bayesian inversion papers treat the unknown as a random function or path and define the posterior directly on that function space; Stuart gives the general inverse-problem treatment, and Apte et al.\ make the path-space viewpoint explicit for data assimilation \citep{stuart2010inverse,hairer2007bayesian}. Classical recursive Bayesian tracking assumes a discrete-time Markov prior and performs prediction and update sequentially; EKF, UKF, and particle filters are all approximations to this same recursive posterior \citep{arulampalam2002particle,sarkka2023bayesian}. Filter-based visual--inertial odometry, exemplified by MSCKF and related consistency-focused filter formulations, uses recursive filtering with inertial propagation and visual correction \citep{mourikis2007msckf,hesch2014consistency,yang2022dri}. Optimization-based methods such as OKVIS, IMU preintegration methods, and iSAM2 represent the posterior through a negative log posterior and solve it by sliding-window or incremental nonlinear optimization \citep{leutenegger2015okvis,forster2017preintegration,kaess2012isam2}. Continuous-time trajectory methods use GP priors generated by stochastic differential equations and then perform batch GP regression / smoothing on the curve \citep{anderson2015gp,dong2017sparsegp}.
-
-\begin{table}[t]
-\centering
-\scriptsize
-\setlength{\tabcolsep}{3.4pt}
-\begin{tabularx}{\textwidth}{L{0.14\textwidth}L{0.17\textwidth}L{0.23\textwidth}L{0.17\textwidth}Y}
-\toprule
-\textbf{Representative work} & \textbf{Unknown object} & \textbf{Prior / regularizer} & \textbf{Inference style} & \textbf{What it assumes or emphasizes}\\
-\midrule
-Stuart (2010) \citep{stuart2010inverse} & Function or curve in infinite-dimensional space & Prior measure on the whole unknown, often Gaussian on a function space & Full Bayesian posterior on the unknown space & General Bayesian inverse viewpoint; emphasizes posterior well-posedness and priors on spaces of functions.\\
-Apte et al. (2007) \citep{hairer2007bayesian} & Continuous-time path & Path-space prior induced by model dynamics and noise & MCMC / path-space Bayesian assimilation & Explicitly formulates data assimilation as conditioning a probability law on paths.\\
-Arulampalam et al. (2002) \citep{arulampalam2002particle} & Discrete state trajectory & Markov state-transition prior & Recursive Bayesian filtering, including particle filters & Generic nonlinear / non-Gaussian online Bayesian tracking.\\
-Mourikis--Roumeliotis (2007) \citep{mourikis2007msckf} & Pose, velocity, biases, camera clones & IMU-driven Gaussian Markov prior with bias random walks & EKF / MSCKF & Real-time vision-aided inertial navigation with recursive updates.\\
-Leutenegger et al. (2015) \citep{leutenegger2015okvis} & Keyframe poses, velocities, biases, landmarks & Gaussian priors plus IMU factors and robust visual residuals & Nonlinear MAP / fixed-lag optimization & Tightly coupled VIO with sliding-window refinement.\\
-Forster et al. (2017) \citep{forster2017preintegration} & Keyframe states plus preintegrated increments & Discrete Gaussian motion prior expressed by on-manifold IMU factors & MAP / factor graph / incremental smoothing & Efficient manifold-correct inertial factors and delayed bias correction.\\
-Anderson--Barfoot--Tong--S{\"a}rkk{\"a} (2015) \citep{anderson2015gp} & Entire continuous-time trajectory curve & GP prior generated by a linear time-varying SDE & Batch GP regression / smoothing & Continuous-time prior, interpolation at arbitrary times, exact sparsity.\\
-\bottomrule
-\end{tabularx}
-\caption{Representative Bayesian formulations for trajectory-pose estimation. The same problem can be expressed through path-space priors, discrete Markov priors, MAP objectives, or continuous-time Gaussian-process priors.}
-\end{table}
+This event-driven viewpoint keeps the modeling honest while still allowing modular implementations. The camera inversion layer is free to use nonlinear optimization, robust losses, sliding windows, or visible-tag subsets internally. The main recursive estimator must distinguish a likelihood contribution from a posterior summary whenever the camera block used the predicted prior internally. The literature comparison is collected near the end of the report, after the model and approximation hierarchy have been defined.
 
 \section{Bayesian model for the trajectory prior}
 \NotationTable{
@@ -524,6 +526,8 @@ A smoothness prior is then generated by
 \end{align}
 Under the continuous-time white-noise idealization, these equations are interpreted in integral form and define a probability law $\Pi_0=\mathrm{Law}(\bar x)$ on $\Gspace$. Translational acceleration, angular acceleration, and bias drift are modeled through zero-mean stochastic drives. The matrices $Q_v,Q_\omega,Q_{bg},Q_{ba}$ are therefore not measurement-noise covariances; they are \emph{hyperparameters of the prior law on trajectories}. They control how rough the trajectory is allowed to be. Small $Q_v$ means the prior expects nearly constant velocity. Large $Q_v$ allows aggressive translational maneuvers. Small $Q_{bg}$ and $Q_{ba}$ imply nearly constant biases, while larger values allow faster drift.
 
+Because these are continuous-time spectral densities, their discrete effect depends on the integration interval. For example, a velocity-drive covariance over a short interval is proportional to $Q_v\Delta t$, and a bias random-walk increment covariance is proportional to $Q_{bg}\Delta t$ or $Q_{ba}\Delta t$. This scaling is the reason that continuous-time noise densities should not be copied directly into a per-frame covariance without accounting for the sample interval.
+
 A commonly used formal quadratic action associated with this prior is
 \begin{equation}
 \mathcal J_{\mathrm{prior}}^{\mathrm{formal}}(\bar x)
@@ -534,8 +538,8 @@ subject to the kinematic constraints on $R$ and $p$. Equation~\eqref{eq:formal_c
 
 \subsection{Why these prior components are reasonable}
 \NotationTable{
-$Q_v$ & Controls translational roughness. Large values mean rapid changes of acceleration are plausible.\\
-$Q_\omega$ & Controls rotational roughness. Large values mean rapid changes of angular velocity are plausible.\\
+$Q_v$ & Controls translational roughness. Large values allow larger acceleration-like changes in velocity.\\
+$Q_\omega$ & Controls rotational roughness. Large values allow larger angular-acceleration-like changes in angular velocity.\\
 $Q_{bg},Q_{ba}$ & Control how quickly gyro and accelerometer biases are allowed to drift.\\
 $\rho_p,\rho_R,Q_c$ & Parameters of colored visual-noise state, introduced later.}
 
@@ -646,7 +650,7 @@ This is the continuous-time analogue of the familiar sum of weighted squared inn
 
 \subsection{IMU as the process model used by a practical online filter}
 \NotationTable{
-$\mathcal U_k$ & All IMU packets between $t_k$ and $t_{k+1}$.\\
+$\mathcal U_k$ & All IMU packets in a chosen propagation interval, often between two camera exposure times $t_k$ and $t_{k+1}$.\\
 $Q_k$ & Effective discrete process covariance over one propagation interval.}
 
 In an online filter it is more convenient to condition on the IMU packets and use the resulting state-transition model. The corresponding continuous-time kinematics are
@@ -657,7 +661,7 @@ In an online filter it is more convenient to condition on the IMU packets and us
 \dot b_g &= w_{bg},\\
 \dot b_a &= w_{ba}.
 \end{align}
-A first-order discrete propagation over one camera interval is
+A first-order discrete propagation over one short interval of length $\Delta t$ is
 \begin{equation}
 R_{k+1}=R_k\Exp\!\big(\crossmat{\widetilde\omega_k-b_{g,k}}\Delta t\big),
 \end{equation}
@@ -671,7 +675,7 @@ p_{k+1}=p_k+v_k\Delta t+\Half\big(g_W+R_k(\widetilde a_k-b_{a,k})\big)\Delta t^2
 b_{g,k+1}=b_{g,k}+n_k^{bg},\qquad b_{a,k+1}=b_{a,k}+n_k^{ba}.
 \label{eq:discrete_process_model_final}
 \end{equation}
-The discrete noise terms above are not independent free parameters; they arise from integrating $n_g,n_a,w_{bg},w_{ba}$ over $[t_k,t_{k+1}]$, and their joint covariance is summarized by $Q_k$. Equation~\eqref{eq:discrete_process_model_final} is therefore a first-order discretization of the IMU-conditioned state transition used in EKF-, IEKF-, or fixed-lag estimators \citep{mourikis2007msckf,forster2017preintegration,barrau2017invariant}.
+The discrete noise terms above are not independent free parameters; they arise from integrating $n_g,n_a,w_{bg},w_{ba}$ over the actual propagation interval, and their joint covariance is summarized by $Q_k$. In an event-driven implementation the interval may be one IMU sample or the time from the previous event to the current event. If one writes a camera-to-camera transition, it is the accumulated result of all IMU packets between the two exposure times. Equation~\eqref{eq:discrete_process_model_final} is therefore a first-order discretization of the IMU-conditioned state transition used in EKF-, IEKF-, or fixed-lag estimators \citep{mourikis2007msckf,forster2017preintegration,barrau2017invariant}.
 
 
 \section{Bayesian model for the visual channel}
@@ -855,20 +859,21 @@ The constant term $b_{\mathrm{map}}$ captures slowly varying or sequence-level b
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[font=\footnotesize, >=Latex, x=0.9cm, y=1cm]
-  \node[reportsoft, text width=3.9cm] (pred) at (0,1.4) {Predictive prior at exposure time\\$p^-_k(x_k,M)$};
-  \node[reportsoft, text width=3.8cm] (pixels) at (0,-1.1) {Raw visual evidence\\tag corners, ids, and scores $Y_k$};
-  \node[reportbox, text width=4.5cm] (front) at (5.1,0.15) {Camera inversion layer\\local pose / visible-tag solve\\with robust pixel residuals};
-  \node[reportsoft, text width=3.8cm] (msg) at (9.9,1.2) {Preferred output\\prior-free message $\lambda_k$\\or $(\Delta\Lambda_k,\Delta\eta_k)$};
-  \node[reportsoft, text width=4.0cm] (pose) at (10.9,-1.5) {Weaker fallback\\$z_k^v=(\widehat T_{WC,k},R_{v,k})$};
-  \node[reportbox, text width=4.4cm] (est) at (14.8,0.15) {Event-driven estimator\\IMU prediction + camera assimilation\\on $\SO$ and $\SE$};
-  \draw[reportarrow] (pred) -- (front);
-  \draw[reportarrow] (pixels) -- (front);
-  \draw[reportarrow] (front.east) to[out=10,in=180] (msg.west);
-  \draw[reportdash] (front.east) to[out=-14,in=180] (pose.west);
-  \draw[reportarrow] (msg.east) to[out=0,in=160] (est.north west);
-  \draw[reportdash] (pose.east) to[out=0,in=200] (est.south west);
-\end{tikzpicture}
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[font=\footnotesize, >=Latex, x=1cm, y=1cm]
+  \node[reportsoft, text width=3.9cm] (pred) at (0,1.25) {Predictive prior\\at exposure time\\$p^-_k(x_k,M)$};
+  \node[reportsoft, text width=3.9cm] (pixels) at (0,-1.25) {Raw visual evidence\\tag corners, ids,\\scores $Y_k$};
+  \node[reportbox, text width=4.4cm] (front) at (5.0,0) {Camera inversion layer\\local pose / visible-tag solve\\with robust pixel residuals};
+  \node[reportsoft, text width=4.2cm] (msg) at (10.0,1.25) {Preferred output\\prior-free message $\lambda_k$\\or $(\Delta\Lambda_k,\Delta\eta_k)$};
+  \node[reportsoft, text width=4.2cm] (pose) at (10.0,-1.25) {Fallback output\\pose summary only\\$z_k^v=(\widehat T_{WC,k},R_{v,k})$};
+  \node[reportbox, text width=4.4cm] (est) at (15.2,0) {Event-driven estimator\\IMU prediction +\\camera assimilation\\on $\SO$ and $\SE$};
+  \draw[reportarrow] (pred.east) -- ++(0.55,0) |- (front.north west);
+  \draw[reportarrow] (pixels.east) -- ++(0.55,0) |- (front.south west);
+  \draw[reportarrow] (front.north east) -- ++(0.65,0) |- node[pos=0.30, above, font=\scriptsize, fill=white, inner sep=1pt] {likelihood path} (msg.west);
+  \draw[reportdash] (front.south east) -- ++(0.65,0) |- node[pos=0.30, below, font=\scriptsize, fill=white, inner sep=1pt] {reduced fallback} (pose.west);
+  \draw[reportarrow] (msg.east) -- ++(0.65,0) |- (est.north west);
+  \draw[reportdash] (pose.east) -- ++(0.65,0) |- (est.south west);
+\end{tikzpicture}}
 \caption{Reduced visual interface with the recommended message layer. Raw pixels and the predictive local prior enter a camera-specific inversion block. The main estimator should consume the prior-free visual message; a pose summary is retained only as a weaker fallback approximation.}
 \end{figure}
 
@@ -1114,6 +1119,7 @@ The EKF / IEKF approximation is appropriate when the posterior remains close to 
 
 The approximation becomes weak when long visual dropouts allow inertial propagation to drift far from the truth, when the camera inversion becomes ambiguous or produces multimodal hypotheses, when outliers are not sufficiently gated, or when the visual approximation is badly misspecified. In such regimes a fixed-lag smoother or a more robust sampling-based approximation is safer. This is why the practical implementation hierarchy later in the report recommends starting from the message-aware event-driven filter and then moving to fixed-lag smoothing when relinearization, delayed correction, or correlation repair becomes important.
 \chapter{Practical Implementation}
+\ChapterRoadmap{This chapter translates the model into implementation choices. It starts with parameter roles and representative hardware scales, then specifies the event-driven architecture, initialization and tag bookkeeping, and finally lists approximation risks and validation statistics.}
 
 \section{Parameter and noise guide: prior, likelihood, and tuning roles}
 \NotationTable{
@@ -1213,19 +1219,27 @@ The rest of the section explains how that architectural choice affects initializ
 \centering
 \resizebox{0.98\textwidth}{!}{%
 \begin{tikzpicture}[font=\footnotesize, >=Latex, x=1cm, y=1cm]
-  \node[reportsoft, text width=3.0cm] (events) at (0,0) {Time-ordered event queue\\IMU packets and camera frames};
-  \node[reportbox, text width=4.2cm] (pred) at (4.9,0) {Joint predictor\\propagate nominal state and covariance\\to the current event time};
-  \node[reportbox, text width=3.9cm] (cam) at (10.4,1.7) {Camera inversion\\pixels + local pose/tag prior\\$\mapsto$ prior-free message};
-  \node[reportbox, text width=4.0cm] (upd) at (10.4,-1.85) {Joint estimator and map state\\message assimilation, tag birth,\\and reappearance gating};
-  \node[reportsoft, text width=2.8cm] (anchor) at (4.9,-3.9) {Known anchor\\$T_{WT_0}$};
-  \node[reportsoft, text width=3.25cm] (memory) at (15.2,-0.25) {Persistent tag posteriors\\and cross-covariances};
+  \node[font=\scriptsize\itshape, text=Accent] at (3.9,2.65) {event-time prediction lane};
+  \node[font=\scriptsize\itshape, text=Accent] at (9.2,2.65) {camera-frame likelihood lane};
+  \node[font=\scriptsize\itshape, text=Accent] at (9.2,-2.75) {persistent map lane};
+  \node[reportsoft, text width=3.1cm] (events) at (0,0.35) {Time-ordered event queue\\IMU packets and camera frames};
+  \node[reportbox, text width=4.1cm] (pred) at (4.3,0.35) {Joint predictor\\propagate nominal state and covariance\\to current event time};
+  \node[reportsoft, text width=3.8cm] (priorbundle) at (8.7,1.45) {Local prior bundle\\current pose prior +\\visible mapped-tag priors};
+  \node[reportbox, text width=3.8cm] (cam) at (13.0,1.45) {Camera inversion\\pixels + local priors\\$\mapsto$ prior-free message};
+  \node[reportbox, text width=4.1cm] (upd) at (13.0,-1.25) {Joint estimator\\message assimilation, tag birth,\\and reappearance gating};
+  \node[reportsoft, text width=3.0cm] (memory) at (8.7,-1.25) {Persistent tag posteriors\\and cross-covariances};
+  \node[reportsoft, text width=2.8cm] (anchor) at (4.3,-2.75) {Known anchor\\$T_{WT_0}$};
+  \coordinate (statepathleft) at (6.65,-2.15);
+  \coordinate (statepathright) at (10.85,-2.15);
+  \coordinate (updstatein) at ($(upd.west)+(0,-0.55)$);
   \draw[reportarrow] (events.east) -- (pred.west);
-  \draw[reportarrow] (pred.east) -- ++(0.62,0) |- node[pos=0.72, above, font=\scriptsize, fill=white, inner sep=1pt] {local predictive prior} (cam.west);
-  \draw[reportarrow] (pred.east) -- ++(0.62,0) |- (upd.west);
+  \draw[reportarrow] (pred.east) -- ++(0.45,0) |- node[pos=0.56, left, font=\scriptsize, fill=white, inner sep=1pt] {pose prior} (priorbundle.west);
+  \draw[reportarrow] (priorbundle.east) -- (cam.west);
+  \draw[reportarrow] (pred.south east) -- ++(0.35,0) |- (statepathleft) -- node[midway, below, font=\scriptsize, fill=white, inner sep=1pt] {propagated joint state} (statepathright) |- (updstatein);
   \draw[reportarrow] (anchor.north) -- (pred.south);
   \draw[reportarrow] (cam.south) -- node[midway, right, font=\scriptsize, fill=white, inner sep=1pt] {$\lambda_k$} (upd.north);
-  \draw[reportarrow] (upd.east) -- ++(0.78,0) |- (memory.west);
-  \draw[reportdash, rounded corners=6pt] (memory.north) -- ++(0,2.05) -| (cam.east);
+  \draw[reportarrow] (upd.west) -- (memory.east);
+  \draw[reportdash] (memory.north) -- node[midway, right, font=\scriptsize, fill=white, inner sep=1pt] {stored tag priors} (priorbundle.south);
 \end{tikzpicture}}
 \caption{Event-driven implementation architecture. IMU and camera events are processed in timestamp order. The predictor advances the joint state to the current event time; camera frames trigger a local inversion that returns a prior-free message; the joint estimator assimilates that message while preserving pose--map cross-covariances. Persistent tag beliefs are stored and reused by later camera events.}
 \label{fig:implementation_architecture_report}
@@ -1238,10 +1252,10 @@ X_{0:N}=\{x_0,\ldots,x_N\},\qquad M=\{T_{WT_j}\}_{j\in\mathcal J_{\mathrm{aux}}}
 \]
 with posterior density
 \[
-p(X_{0:N},M\mid U_{0:N-1},Y_{0:N})
+p(X_{0:N},M\mid \mathcal U_{0:N-1},Y_{0:N})
 \propto
 p_0(x_0)p_0(M)
-\prod_{k=0}^{N-1} p(x_{k+1}\mid x_k,U_{k:k+1})
+\prod_{k=0}^{N-1} p(x_{k+1}\mid x_k,\mathcal U_k)
 \prod_{k=0}^{N} p(Y_k\mid x_k,M).
 \]
 No information is used twice: each IMU packet contributes once through the process factor, each corner pixel contributes once through the camera model, and the static map and trajectory are inferred together. In practice this posterior is solved either by fixed-lag smoothing, batch MAP estimation, or posterior sampling as discussed earlier.
@@ -1271,7 +1285,7 @@ p^+_k(x_k,M) &\propto \lambda_k(x_k,M)\,p^-_k(x_k,M),
 \end{align}
 where the quotient is understood in the local Gaussian or local Laplace sense described in Chapter~1. This architecture preserves the main Bayesian rule: the same prior is not reused twice.
 
-This design is still approximate, because the camera inversion itself is local and usually nonlinear, and because only a subset of the full joint posterior is exposed to the camera block at each frame. But it is materially more faithful than the old pose-summary pipeline. A clean implementation should obey the following rules.
+This design is still approximate, because the camera inversion itself is local and usually nonlinear, and because only a subset of the full joint posterior is exposed to the camera block at each frame. It is nevertheless more faithful to the Bayesian factorization than a pose-summary-only pipeline. A clean implementation should obey the following rules.
 \begin{itemize}
     \item IMU packets should enter the estimator exactly once, through event-time propagation.
     \item If the camera inversion uses the predicted pose and tag priors, it must export a prior-free message rather than its posterior.
@@ -1285,40 +1299,45 @@ Figure~\ref{fig:staggered_flow_report} makes the exposure-time logic explicit. T
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[font=\footnotesize, >=Latex, x=0.95cm, y=0.86cm]
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[font=\footnotesize, >=Latex, x=1cm, y=1cm]
   \tikzstyle{evt}=[circle,draw=Accent,minimum size=0.5cm,inner sep=1pt]
   \tikzstyle{imuevt}=[evt,fill=green!12]
-  \tikzstyle{camevt}=[evt,fill=orange!14]
+  \tikzstyle{camevt}=[evt,fill=orange!14,thick]
+  \tikzstyle{oldcamevt}=[evt,fill=orange!6,draw=Accent!55]
 
-  \draw[reportarrow] (0,3.35) -- (17.2,3.35) node[right] {time};
-  \foreach \x in {0.8,1.7,2.6,4.0,4.9,5.8,7.2,8.1,9.0,9.9,11.3,12.2,13.6,14.5,15.4} {
+  \draw[reportarrow] (0,3.35) -- (16.4,3.35) node[right] {time};
+  \foreach \x in {0.8,1.6,2.4,3.8,4.6,5.4,6.2,7.0,8.6,9.4,10.2,11.0,12.4,13.2,14.0,14.8} {
     \node[imuevt] at (\x,3.9) {\scriptsize I};
     \draw[Accent!65] (\x,3.35) -- (\x,3.62);
   }
-  \foreach \x/\lbl in {3.2/k\!-\!1,6.5/k,10.6/k\!+\!1,13.0/k\!+\!2} {
-    \node[camevt] at (\x,3.9) {\scriptsize C};
+  \foreach \x/\lbl in {3.0/k\!-\!1,11.6/k\!+\!1,15.2/k\!+\!2} {
+    \node[oldcamevt] at (\x,3.9) {\scriptsize C};
     \draw[Accent!65] (\x,3.35) -- (\x,3.62);
     \node[font=\scriptsize, anchor=north west] at (\x,3.08) {$t_{\lbl}$};
   }
+  \node[camevt] (camtk) at (7.8,3.9) {\scriptsize C};
+  \draw[Accent!80, thick] (7.8,3.35) -- (7.8,3.62);
+  \node[font=\scriptsize, anchor=north] at (7.8,3.05) {$t_k$};
 
-  \node[reportsoft, text width=4.0cm] (topimu) at (2.8,5.15) {IMU packets arrive\\frequently and only\\propagate the prior};
-  \node[reportsoft, text width=4.6cm] (topcam) at (10.3,5.15) {When a camera frame arrives, the estimator advances to the exact exposure time before any visual update};
-  \draw[reportarrow] (topimu.south) -- (2.6,4.2);
-  \draw[reportarrow] (topcam.south) -- (10.6,4.2);
+  \node[reportsoft, text width=4.0cm] (topimu) at (2.6,5.15) {IMU packets arrive frequently\\and only propagate the prior};
+  \node[reportsoft, text width=4.8cm] (topcam) at (7.8,5.35) {Camera exposure $t_k$\\triggers one visual likelihood contribution};
+  \draw[reportarrow] (topimu.south) -- (2.4,4.2);
+  \draw[reportarrow] (topcam.south) -- (camtk.north);
 
-  \node[reportfactor, text width=3.0cm] (imu) at (1.55,0) {1. Propagate through arriving IMU events};
-  \node[reportsoft, text width=3.25cm] (prior) at (5.65,0) {2. At exposure time $t_k$, extract the local pose / tag prior};
-  \node[reportfactor, text width=3.2cm] (cam) at (9.75,0) {3. Run camera inversion on the current frame};
-  \node[reportstate, text width=3.35cm] (msg) at (14.0,0) {4. Remove the local prior and assimilate the message};
-  \node[reportmap, text width=5.2cm] (map) at (10.9,-2.65) {5. Birth new tags cautiously and gate reappearing tags\\inside the same joint state and covariance};
+  \node[reportfactor, text width=3.0cm] (imu) at (1.6,0) {1. Propagate through arriving IMU events};
+  \node[reportsoft, text width=3.45cm] (prior) at (7.8,0) {2. At exposure time $t_k$, extract the local pose / tag prior};
+  \node[reportfactor, text width=3.25cm] (cam) at (11.5,0) {3. Run camera inversion on the current frame};
+  \node[reportstate, text width=3.55cm] (msg) at (15.5,0) {4. Remove the local prior and assimilate the message};
+  \node[reportmap, text width=5.4cm] (map) at (11.5,-2.55) {5. Birth new tags cautiously and gate reappearing tags\\inside the same joint state and covariance};
 
   \draw[reportarrow] (imu) -- (prior);
   \draw[reportarrow] (prior) -- (cam);
   \draw[reportarrow] (cam) -- (msg);
   \draw[reportarrow] (msg.south) -- ++(0,-0.65) -| (map.east);
-  \draw[reportdash] (6.5,3.62) -- (6.5,1.05);
-  \draw[reportdash] (10.6,3.62) -- (10.6,1.05);
-\end{tikzpicture}
+  \draw[reportdash] (7.8,3.62) -- (prior.north);
+  \node[font=\scriptsize, fill=white, inner sep=1pt] at (7.8,1.75) {advance exactly to $t_k$};
+\end{tikzpicture}}
 \caption{Exposure-time flow in the recommended modular approximation. Top: asynchronous IMU and camera events are processed strictly in timestamp order. Bottom: when a camera frame arrives at exposure time $t_k$, the estimator first advances to that exact time, extracts the local prior, runs the camera inversion, removes the prior contribution, and assimilates the resulting visual message into the same joint state that stores the active tag posteriors.}
 \label{fig:staggered_flow_report}
 \end{figure}
@@ -1330,7 +1349,7 @@ At frame $k=0$ the anchor is assumed visible. This makes initialization much sim
 \[
 q(T_{WC,0})\approx \Normal_{\seLie}(\widehat T_{WC,0},R_{v,0}).
 \]
-Then convert to body pose using the known camera--IMU extrinsic,
+Then convert to body pose using the known camera--IMU extrinsic, with $T_{CB}=T_{BC}^{-1}$,
 \[
 \widehat T_{WB,0}=\widehat T_{WC,0}T_{CB},
 \]
@@ -1494,8 +1513,8 @@ A practical choice is blockwise proposals in local coordinates:
 \end{itemize}
 This is not meant for real-time estimation at 60~Hz. Its purpose is diagnostic and pedagogical: it reveals multimodality, non-Gaussianity, and tag--trajectory coupling that a local EKF or message-linearization approximation may hide. For example, one can visualize posterior samples of a reappearing tag's pose, or posterior tubes of the camera trajectory during partial occlusion.
 
-\subsection{What counts as a statistical or probabilistic crime?}
-Several implementation shortcuts are acceptable approximations. Several others are genuine mistakes.
+\subsection{Common probabilistic failure modes}
+Several implementation shortcuts are acceptable approximations. Several others break the intended posterior semantics and should be treated as modeling errors.
 \begin{itemize}
     \item \textbf{Reusing a camera posterior as a measurement.} If the camera inversion uses the predicted pose prior and its posterior is fed back as if it were an independent sensor reading, the prior has been counted twice.
     \item \textbf{Double counting IMU.} If IMU is used inside the camera module to form a visual summary and then used again in the back-end process model, inertial information has been counted twice.
@@ -1511,20 +1530,47 @@ On the other hand, the following are usually acceptable first approximations:
     \item using a fixed-lag smoother to repair the neglected correlations of the real-time front-end.
 \end{itemize}
 
-\subsection{Assessment: is the modular message scheme reasonable?}
-Yes, with one correction: the recommended reduced architecture is no longer the old staggered pose-summary pipeline. The reasonable modular scheme is the event-driven message architecture described above. It is not the exact joint posterior of Chapter~1, but it is a principled approximation of it. The camera code can stay separate, the back-end can remain recursive and real-time, and a slower map-refinement layer can still be added later. What is no longer acceptable as the default story is to treat a prior-conditioned camera posterior as if it were a fresh measurement.
+\subsection{Assessment of the modular message scheme}
+The modular scheme is defensible when it is described as an approximation to the joint posterior, not as the joint posterior itself. The recommended reduced architecture is the event-driven message architecture described above. The camera code can stay separate, the back-end can remain recursive and real-time, and a slower map-refinement layer can still be added later. The key requirement is that a prior-conditioned camera posterior must not be treated as an independent sensor measurement unless the prior contribution has first been removed.
 
-The direct raw-residual joint filter remains formally cleaner whenever it is computationally feasible. The pose-summary fallback remains usable for a first prototype or ablation study, but it should be documented as a weaker approximation whose neglected couplings and prior-reuse hazards can make the filter overconfident. This places the practical hierarchy in a clear order: exact joint Bayes first, message-based recursive approximation second, pose-summary shortcut last \citep{mourikis2007msckf,leutenegger2015okvis,forster2017preintegration,kaess2012isam2,TagSLAM2019}.
+The direct raw-residual joint filter remains formally cleaner whenever it is computationally feasible. The pose-summary fallback remains usable for a first prototype or ablation study, but it should be documented as a weaker approximation whose neglected couplings and prior-reuse hazards can make the filter overconfident. This places the practical hierarchy in a clear order: exact joint posterior first, message-based recursive approximation second, pose-summary shortcut last \citep{mourikis2007msckf,leutenegger2015okvis,forster2017preintegration,kaess2012isam2,TagSLAM2019}.
 
 \section{Synthesis and literature position}
 The reference problem is a posterior on a trajectory curve together with a static auxiliary-tag map in an anchored world frame. The prior is a law on that mixed object: smooth body motion, slowly drifting biases, and static but initially unknown tag poses. In the full joint model the IMU contributes inertial transition likelihoods and the camera contributes the raw-pixel likelihood through the tag projection model. If one solves everything jointly, the result is a direct Bayesian estimator over both trajectory and map. If one instead chooses a speed-friendly decomposition, the defensible reduced model is the event-driven message architecture: IMU packets are used exactly once in propagation, the camera module converts each frame into a prior-free visual message, and the joint recursive estimator assimilates that message while preserving pose--map cross-covariances for the active states. Pose pseudo-measurements remain only as a weaker fallback. The practical message is therefore simple: exact Bayes is the reference model, and recursive or fixed-lag estimators are computational approximations to it.
 
 \subsection{How the literature positions these choices}
+\NotationTable{
+Markov prior & Prior that factorizes as $p(x_0)\prod_k p(x_{k+1}\mid x_k)$.\\
+GP prior & Gaussian-process prior on the whole continuous-time trajectory curve.\\
+MAP & Maximum a posteriori estimate: the minimizer of the negative log posterior.\\
+Fixed lag & Approximate smoothing over a moving recent time window.}
+
 The Bayesian inverse-problem perspective treats trajectory and map as latent variables inferred from sensor data and priors \citep{stuart2010inverse}. Recursive Bayesian filtering and smoothing provide the general algorithmic backbone \citep{sarkka2023bayesian}. In visual--inertial robotics, filtering families such as MSCKF keep a Gaussian posterior over the current state and selected pose history \citep{mourikis2007msckf}. Optimization families such as IMU-preintegrated MAP smoothing, OKVIS, and VINS-Mono instead solve nonlinear MAP problems over keyframes or sliding windows of recent states, sometimes with structureless visual factors rather than explicit landmark states \citep{Forster2015,forster2017preintegration,leutenegger2015okvis,VINSMono2017}. Fiducial-tag systems such as TagSLAM explicitly represent static tag poses and body poses together in a factor graph \citep{TagSLAM2019}. Continuous-time Bayesian approaches such as STEAM place priors directly on the space of trajectories and then condition on observations \citep{Barfoot2014,anderson2015gp}. The anchored multi-tag method developed in this report fits naturally in this landscape as either a joint fiducial visual--inertial SLAM estimator or a conservative event-driven recursive approximation with a camera-message layer.
+
+\begin{table}[H]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3.4pt}
+\begin{tabularx}{\textwidth}{L{0.14\textwidth}L{0.17\textwidth}L{0.23\textwidth}L{0.17\textwidth}Y}
+\toprule
+\textbf{Representative work} & \textbf{Unknown object} & \textbf{Prior / regularizer} & \textbf{Inference style} & \textbf{What it assumes or emphasizes}\\
+\midrule
+Stuart (2010) \citep{stuart2010inverse} & Function or curve in infinite-dimensional space & Prior measure on the whole unknown, often Gaussian on a function space & Full Bayesian posterior on the unknown space & General Bayesian inverse viewpoint; emphasizes posterior well-posedness and priors on spaces of functions.\\
+Apte et al. (2007) \citep{hairer2007bayesian} & Continuous-time path & Path-space prior induced by model dynamics and noise & MCMC / path-space Bayesian assimilation & Explicitly formulates data assimilation as conditioning a probability law on paths.\\
+Arulampalam et al. (2002) \citep{arulampalam2002particle} & Discrete state trajectory & Markov state-transition prior & Recursive Bayesian filtering, including particle filters & Generic nonlinear / non-Gaussian online Bayesian tracking.\\
+Mourikis--Roumeliotis (2007) \citep{mourikis2007msckf} & Pose, velocity, biases, camera clones & IMU-driven Gaussian Markov prior with bias random walks & EKF / MSCKF & Real-time vision-aided inertial navigation with recursive updates.\\
+Leutenegger et al. (2015) \citep{leutenegger2015okvis} & Keyframe poses, velocities, biases, landmarks & Gaussian priors plus IMU factors and robust visual residuals & Nonlinear MAP / fixed-lag optimization & Tightly coupled VIO with sliding-window refinement.\\
+Forster et al. (2017) \citep{forster2017preintegration} & Keyframe states plus preintegrated increments & Discrete Gaussian motion prior expressed by on-manifold IMU factors & MAP / factor graph / incremental smoothing & Efficient manifold-correct inertial factors and delayed bias correction.\\
+Anderson--Barfoot--Tong--S{\"a}rkk{\"a} (2015) \citep{anderson2015gp} & Entire continuous-time trajectory curve & GP prior generated by a linear time-varying SDE & Batch GP regression / smoothing & Continuous-time prior, interpolation at arbitrary times, exact sparsity.\\
+\bottomrule
+\end{tabularx}
+\caption{Representative Bayesian formulations for trajectory-pose estimation. The same inverse problem can be expressed through path-space priors, discrete Markov priors, MAP objectives, or continuous-time Gaussian-process priors. The table is a positioning aid rather than an exhaustive survey.}
+\end{table}
 
 \clearpage
 \appendix
 \chapter{Prior samples for interpretation and sanity checking}
+\ChapterRoadmap{The appendix visualizes the trajectory prior before any measurements are used. It is a sanity check for the chosen motion and bias hyperparameters, not a posterior result and not a claim about one unique physical experiment.}
 
 \NotationTable{
 $\Delta t$ & Discrete time step used for sampling; here $\Delta t=\tfrac{1}{60}$ s.\\
@@ -1585,6 +1631,8 @@ $\sigma_{ba,\mathrm{rw}}$ & $0.001$ m/s$^2$ per step & Accelerometer-bias random
 \end{table}
 
 The script used to generate the figures in this annex is stored alongside the report as \texttt{sample\_prior\_paths.py}, together with the JSON file \texttt{prior\_sample\_parameters.json}. The figures can therefore be regenerated whenever the assumed prior regime is adjusted.
+
+The parameters in this appendix are discrete sampler settings. In particular, $\sigma_a$ and $\sigma_\alpha$ are the standard deviations of the acceleration-like samples drawn at each simulation step, and $\sigma_{bg,\mathrm{rw}}$ and $\sigma_{ba,\mathrm{rw}}$ are per-step bias increments. They should not be read as the continuous-time spectral-density matrices $Q_v,Q_\omega,Q_{bg},Q_{ba}$ without applying the appropriate $\Delta t$ scaling.
 
 \section{Three-dimensional prior samples}
 
